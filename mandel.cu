@@ -49,37 +49,31 @@ int escape_mandelbrot(Complex c, int iter_max) {
 
 // Loop over each pixel from our image and check if the points associated with this pixel escape to infinity
 __global__
-void get_number_iterations(const window<int> *scr, const window<float> *fract, int iter_max, int *colors) {
+void get_number_iterations(window<int> scr, window<float> fract, int iter_max, int *colors) {
     int row_idx = blockIdx.y * blockDim.y + threadIdx.y;
     int col_idx = blockIdx.x * blockDim.x + threadIdx.x;
     int row_stride = blockDim.y * gridDim.y;
     int col_stride = blockDim.x * gridDim.x;
 
-    for (int i = row_idx; i < scr->height(); i += row_stride) {
-        for (int j = col_idx; j < scr->width(); j += col_stride) {
-            Complex c((float) (scr->x_min() + j), (float) (scr->y_min() + i));
-            c = scale(*scr, *fract, c);
-            colors[row_idx * scr->width() + col_idx] = escape_mandelbrot(c, iter_max);
+    for (int i = row_idx; i < scr.height(); i += row_stride) {
+        for (int j = col_idx; j < scr.width(); j += col_stride) {
+            Complex c((float) (scr.x_min() + j), (float) (scr.y_min() + i));
+            c = scale(scr, fract, c);
+            colors[row_idx * scr.width() + col_idx] = escape_mandelbrot(c, iter_max);
         }
     }
 }
 
 void fractal(window<int> &scr, window<float> &fract, int iter_max, const char *fname, bool smooth_color) {
     auto start = std::chrono::steady_clock::now();
-    window<int> *scr_uni;
-    window<float> *fract_uni;
     int *colors_gpu;
 
-    cuda_err_chk(cudaMallocManaged(&scr_uni, sizeof(window<int>)));
-    cuda_err_chk(cudaMallocManaged(&fract_uni, sizeof(window<float>)));
     cuda_err_chk(cudaMalloc(&colors_gpu, sizeof(int) * scr.size()));
-    *scr_uni = scr;
-    *fract_uni = fract;
 
     dim3 threads_per_block(16, 16);
     dim3 n_blocks((scr.width() + threads_per_block.x - 1) / threads_per_block.x,
                   (scr.height() + threads_per_block.y - 1) / threads_per_block.y);
-    get_number_iterations<<<n_blocks, threads_per_block>>>(scr_uni, fract_uni, iter_max, colors_gpu);
+    get_number_iterations<<<n_blocks, threads_per_block>>>(scr, fract, iter_max, colors_gpu);
     cuda_err_chk(cudaGetLastError());
     cuda_err_chk(cudaDeviceSynchronize());
 
@@ -90,8 +84,6 @@ void fractal(window<int> &scr, window<float> &fract, int iter_max, const char *f
     std::cout << "Time to generate " << fname << " = " << std::chrono::duration<float, std::milli>(end - start).count()
               << " [ms]" << std::endl;
 
-    cuda_err_chk(cudaFree(scr_uni));
-    cuda_err_chk(cudaFree(fract_uni));
     cuda_err_chk(cudaFree(colors_gpu));
 
     // Save (show) the result as an image
