@@ -68,22 +68,23 @@ void fractal(window<int> &scr, window<float> &fract, int iter_max, const char *f
     auto start = std::chrono::steady_clock::now();
     window<int> *scr_uni;
     window<float> *fract_uni;
-    int *colors_uni;
+    int *colors_gpu;
 
     cuda_err_chk(cudaMallocManaged(&scr_uni, sizeof(window<int>)));
     cuda_err_chk(cudaMallocManaged(&fract_uni, sizeof(window<float>)));
-    cuda_err_chk(cudaMallocManaged(&colors_uni, sizeof(int) * scr.size()));
+    cuda_err_chk(cudaMalloc(&colors_gpu, sizeof(int) * scr.size()));
     *scr_uni = scr;
     *fract_uni = fract;
 
     dim3 threads_per_block(16, 16);
     dim3 n_blocks((scr.width() + threads_per_block.x - 1) / threads_per_block.x,
                   (scr.height() + threads_per_block.y - 1) / threads_per_block.y);
-    get_number_iterations<<<n_blocks, threads_per_block>>>(scr_uni, fract_uni, iter_max, colors_uni);
+    get_number_iterations<<<n_blocks, threads_per_block>>>(scr_uni, fract_uni, iter_max, colors_gpu);
     cuda_err_chk(cudaGetLastError());
     cuda_err_chk(cudaDeviceSynchronize());
 
-    std::vector<int> colors(colors_uni, colors_uni + scr.size());
+    std::vector<int> colors(scr.size());
+    cuda_err_chk(cudaMemcpy(colors.data(), colors_gpu, sizeof(int) * scr.size(), cudaMemcpyDeviceToHost));
 
     auto end = std::chrono::steady_clock::now();
     std::cout << "Time to generate " << fname << " = " << std::chrono::duration<float, std::milli>(end - start).count()
@@ -91,7 +92,7 @@ void fractal(window<int> &scr, window<float> &fract, int iter_max, const char *f
 
     cuda_err_chk(cudaFree(scr_uni));
     cuda_err_chk(cudaFree(fract_uni));
-    cuda_err_chk(cudaFree(colors_uni));
+    cuda_err_chk(cudaFree(colors_gpu));
 
     // Save (show) the result as an image
     plot(scr, colors, iter_max, fname, smooth_color);
